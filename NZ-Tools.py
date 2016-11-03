@@ -12,10 +12,6 @@ bl_info = {
 
 import bpy , os , sys , random
 
-class NZTGASobject(bpy.types.PropertyGroup):
-    is_lopo_chunk = bpy.props.BoolProperty()
-    is_additional = bpy.props.BoolProperty()
-    my_string = bpy.props.StringProperty()
 
 class OpNZTGameAssetPrep1(bpy.types.Operator):
     "prepare meshes for hipoly and texturing"
@@ -55,16 +51,7 @@ class OpNZTGameAssetPrep2(bpy.types.Operator):
                 ob.name = ob.name.replace('root','root-hipo')           
                 ob.name = ob.name.split('.')[0] 
 
-#                put_on_layers = lambda x: tuple((i in x) for i in range(20))
-#                ob.layers[:] = put_on_layers({2,6,5,11})
-#            
-#            
-#            ob.layers[counter] = True
-#            #wipe other layers
-#            for i in range(20):
-#                ob.layers[i] = (i == counter)
-#            
-            
+        
                                         
         return {'FINISHED'}
 
@@ -165,6 +152,7 @@ class OpNZTGameAssetExport(bpy.types.Operator):
                 
                 jobj.data.uv_textures.active=obj.data.uv_textures[1]
 
+                jobj.data.use_auto_smooth=True
                 
                 bpy.ops.object.editmode_toggle()
                 
@@ -183,42 +171,10 @@ class OpNZTGameAssetExport(bpy.types.Operator):
                 astype='props'
             else:
                 astype='set-pieces'
-            exppath='C:\\unityprojects\\Metris Soccer - Base\\Metris Soccer - Base\\Assets\\Floating-Field\\'+astype+'\\'+root.name[3:]+'.fbx'
+            exppath='bpy.context.scene.render.filepath' +'\\'+root.name[3:]+'.fbx'
             bpy.ops.export_scene.fbx(filepath=(exppath),use_selection=True, global_scale=1, check_existing=False, mesh_smooth_type='OFF', bake_space_transform=True,use_anim=False)
 
             bpy.ops.object.delete()
-#        
-#        # export to blend file location
-#        scene = bpy.context.scene
-#        obj_active = scene.objects.active
-
-#        def step_export(step):    
-
-#            exppath = bpy.path.abspath(bpy.context.scene.render.filepath)+scene.name+'-'+step+'.fbx'
-#                
-#            bpy.ops.export_scene.fbx(filepath=(exppath),use_selection=True, global_scale=1, check_existing=False, mesh_smooth_type='OFF')
-#                
-#            
-#            print("written:", scene.name,step)
-
-#        selection = []
-
-#        for step in ['bake-lopo','bake-hipo','output-assets']:
-#            bpy.ops.object.select_all(action='DESELECT')
-#        
-#            if step == 'bake-lopo' :       
-#                bpy.ops.object.select_pattern(pattern='*-lo',extend=False)
-#                bpy.ops.object.select_pattern(pattern='*-addlo',extend=True)            
-#                step_export(step)
-
-#            elif step == 'bake-hipo':
-#                bpy.ops.object.select_pattern(pattern='*-hi',extend=False)
-#                bpy.ops.object.select_pattern(pattern='*-addhi',extend=True)            
-#                step_export(step)
-#                
-#            elif step == 'output-assets':
-##               for group in ...                                       
-#                pass
 
         return {'FINISHED'}
 
@@ -238,16 +194,17 @@ class OpNZTBakeExport(bpy.types.Operator):
         steps=['lo','hi']
         
         for step in steps:
+            
             print('exporting '+step+' meshes')
             steproots=[]
-            
+                            
             for root in roots:
                 if root.name.endswith('-hipo'):
                     if step =='hi':
                        steproots.append(root)                      
                     else:
                        pass 
-                else:
+                elif root.name.endswith('-lopo'):
                     if step =='lo':
                        steproots.append(root)                     
                     else:
@@ -263,6 +220,59 @@ class OpNZTBakeExport(bpy.types.Operator):
                 bpy.ops.export_scene.fbx(filepath=(exppath),use_selection=True, global_scale=1, check_existing=False, mesh_smooth_type='OFF', bake_space_transform=True)
 
         return {'FINISHED'}
+class OpNZTcustomNormalFacesAverage(bpy.types.Operator):
+    "average normals of selected faces"
+    bl_idname = "object.nzt_custnormfaceavg"
+    bl_label = "faces average"
+     
+    def execute(self, context):
+
+        #start in edit mode having selected all 'flat' faces, those which that aren't bevels or transition areas.
+
+        #To object mode , set smooth
+        bpy.ops.object.editmode_toggle()
+        obj=bpy.context.active_object
+        obj.data.use_auto_smooth=True
+
+        bpy.ops.object.shade_smooth()
+
+        #To edit mode , create vertgroup with selected flat faces
+        bpy.ops.object.editmode_toggle()
+
+        try :
+            obj.vertex_groups.remove(obj.vertex_groups['NZT-flatfaces'])
+        except: pass
+
+        bpy.ops.object.vertex_group_add()
+        obj.vertex_groups.active.name='NZT-flatfaces'
+        bpy.ops.object.vertex_group_assign()
+
+        #To object mode , create obj2 to copy normals from
+        bpy.ops.object.editmode_toggle()
+
+        bpy.ops.object.duplicate()
+        obj2=bpy.context.active_object
+        obj2.name=obj2.name.split('.')[0]+'-vertnorm-source'
+
+        #To edit mode  remove unselected faces (bevels) from object
+        bpy.ops.object.editmode_toggle()
+        bpy.ops.mesh.select_all(action='INVERT')
+        bpy.ops.mesh.delete(type='FACE')
+
+        #To object mode , hide obj2 add data transf modif to obj1
+
+        obj2.hide=True
+        obj.select=True
+        bpy.context.scene.objects.active=obj
+        bpy.ops.object.modifier_add(type='DATA_TRANSFER')
+        obj.modifiers['DataTransfer'].object=obj2
+        obj.modifiers['DataTransfer'].use_loop_data=True
+        obj.modifiers['DataTransfer'].data_types_loops={'CUSTOM_NORMAL'}
+
+        return {'FINISHED'}
+
+
+
 
 ##########################
 ####   USER INTERFACE
@@ -299,11 +309,10 @@ class NZTPanel(bpy.types.Panel):
         row.operator("scene.nzt_prep1")
         row = layout.row()
         row.operator("scene.nzt_prep2")
-
+        row = layout.row()
+        row.operator("object.nzt_custnormfaceavg")
 
 def register():
-    bpy.utils.register_class(NZTGASobject)
-    bpy.types.Object.GASobj = bpy.props.PointerProperty(type=NZTGASobject)
 
     bpy.utils.register_class(NZTPanel)
     bpy.utils.register_class(OpNZTGameAssetExport)
@@ -311,11 +320,9 @@ def register():
 
     bpy.utils.register_class(OpNZTGameAssetPrep1)
     bpy.utils.register_class(OpNZTGameAssetPrep2)
-
+    bpy.utils.register_class(OpNZTcustomNormalFacesAverage)
 
 def unregister():
-    bpy.utils.unregister_class(NZTGASobject)
-#   Del gasobj ?
 
     bpy.utils.unregister_class(NZTPanel)
     bpy.utils.unregister_class(OpNZTGameAssetExport)
@@ -323,6 +330,7 @@ def unregister():
 
     bpy.utils.unregister_class(OpNZTGameAssetPrep1)
     bpy.utils.unregister_class(OpNZTGameAssetPrep2)
+    bpy.utils.unregister_class(OpNZTcustomNormalFacesAverage)
 
 
 if __name__ == "__main__":
