@@ -1,6 +1,6 @@
 # NZ-Tools
-my Blender shelf tools (Substance and Unity export)
-
+Blender addon
+My shelf tools for export to Substance and Unity and some frequently used modelling tools and shortcuts.
 
 ![alt text](https://nizuvault.files.wordpress.com/2017/04/croppercapture64.jpg)
 
