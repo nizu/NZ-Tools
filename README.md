@@ -46,3 +46,11 @@ It does a bunch of clean up operations, mostly to do a clean join of the meshes 
 –Clear custom normals : just a button for that op. , i use it often, my workflow with custom normals is basically :  try Weighted N. script , if result is not good try adding some sharp edges, if that’s still not good (mesh too lowpoly to improve with custom normals) then clear custom normals and use base tools. Only exception is sometimes i use Blend4web to average and flatten normals on a plane that is flat but is showing bad diagonal normals.
 
 –Origin to selected :  Just reduces 2 clicks to 1 for the operation of setting pivot of object to selected vertex 😀
+
+///Object properties :
+These properties are normally set automatically following the workflow (prep lowpoly , then hipoly) but can be used to check or fix properties of selected object, only available/used for root empties (for now)
+-"lowpoly root" checkbox : if this empty is the root for a lowpoly/asset group
+-"hipoly:" text field : if above is true, which is the name of corresponding hipoly group.
+Groups made of instances of original pieces, can be left with the 'hipoly' empty, and used only to export to engine.
+
+
