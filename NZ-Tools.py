@@ -16,8 +16,12 @@ bl_info = {
 import bpy , os , sys , random , subprocess
 
 class nztprops(bpy.types.PropertyGroup):
+    bakemeshespath=bpy.props.StringProperty(subtype="DIR_PATH", default='//bake-meshes')
     engineroot= bpy.props.StringProperty(subtype="DIR_PATH")
+    packerpath= bpy.props.StringProperty(subtype="FILE_PATH",default='C:\steam\steamapps\common\IPackThat\IPackThat.exe')
+
     unity5=bpy.props.BoolProperty()
+    
     
 class nztroot(bpy.types.PropertyGroup):
     is_lopo_root=bpy.props.BoolProperty(description='is this object root-parent of a set of lowpoly chunks')
@@ -286,14 +290,15 @@ class OpNZTGameAssetExport(bpy.types.Operator):
             bpy.ops.mesh.reveal()
             bpy.ops.mesh.select_all(action='SELECT')
                             
+            Di=obj.dimensions
+            obscale=max(Di)   
+            
             bpy.ops.uv.select_all(action='SELECT')
             bpy.ops.uv.average_islands_scale()
-            bpy.ops.uv.pack_islands(rotate=False)
+            bpy.ops.uv.pack_islands(rotate=False, margin=(0.002/obscale))
             origarea = bpy.context.area.type
             bpy.context.area.type = 'IMAGE_EDITOR'
-            Di=obj.dimensions
-            scale=max(Di)   
-            bpy.ops.transform.resize(value=(scale,scale,scale))
+            bpy.ops.transform.resize(value=(obscale,obscale,obscale))
             bpy.context.area.type = origarea
 
 #  weld verts.
@@ -341,7 +346,11 @@ class OpNZTGameAssetExport(bpy.types.Operator):
                 scn.objects.active.location=[0,0,0,]            
             
 
-            exppath=bpy.path.abspath(bpy.context.scene.nztprops.engineroot)+'meshes//'+filename+'.fbx'
+            expdir=bpy.path.abspath(bpy.context.scene.nztprops.engineroot)
+            exppath=expdir+filename+'.fbx'
+            if not os.path.exists(expdir):
+                os.makedirs(expdir)
+
 
             bpy.ops.export_scene.fbx(filepath=(exppath),use_selection=True, global_scale=1, check_existing=False, mesh_smooth_type='OFF', bake_space_transform=True,use_anim=False,apply_unit_scale=not(bpy.context.scene.nztprops.unity5))
 
@@ -390,7 +399,7 @@ class OpNZTBakeExport(bpy.types.Operator):
                 bpy.context.scene.objects.active=root
                 bpy.ops.object.select_hierarchy(direction='CHILD',extend=True)
 
-                exppath=bpy.path.abspath('//bake-meshes')+'\\'+bpy.context.scene.name +'-'+step+'.fbx'
+                exppath=bpy.path.abspath(bpy.context.scene.nztprops.bakemeshespath)+'\\'+bpy.context.scene.name +'-'+step+'.fbx'
                 print('started export', exppath)
                 bpy.ops.export_scene.fbx(filepath=(exppath),use_selection=True, global_scale=1, check_existing=False, mesh_smooth_type='OFF', bake_space_transform=True,apply_unit_scale=False)
 
@@ -404,8 +413,8 @@ class OpNZTPackExport(bpy.types.Operator):
     def execute(self, context):
 
         print('exporting for uv pack')
-        exppath=bpy.path.abspath(('//bake-meshes')+'\packme.fbx')
-        packapp= ('K:\\games\\steam\\steamapps\\common\\IPackThat\\ipackthat.exe') 
+        exppath=bpy.path.abspath((bpy.context.scene.nztprops.bakemeshespath)+'\packme.fbx')
+        packapp= (bpy.context.scene.nztprops.packerpath) 
 
         obj=bpy.context.selected_objects[0]
 
@@ -447,56 +456,7 @@ class OpNZTorigintoselected(bpy.types.Operator):
     
 # outdated, weight normals by Simon Lusenc is better than this.
 
-class OpNZTcustomNormalFacesAverage(bpy.types.Operator):
-    "average normals of selected faces"
-    bl_idname = "object.nzt_custnormfaceavg"
-    bl_label = "faces average"
-     
-    def execute(self, context):
 
-        #start in edit mode having selected all 'flat' faces, those which that aren't bevels or transition areas.
-
-        #To object mode , set smooth
-        bpy.ops.object.editmode_toggle()
-        obj=bpy.context.active_object
-        obj.data.use_auto_smooth=True
-
-        bpy.ops.object.shade_smooth()
-
-        #To edit mode , create vertgroup with selected flat faces
-        bpy.ops.object.editmode_toggle()
-
-        try :
-            obj.vertex_groups.remove(obj.vertex_groups['NZT-flatfaces'])
-        except: pass
-
-        bpy.ops.object.vertex_group_add()
-        obj.vertex_groups.active.name='NZT-flatfaces'
-        bpy.ops.object.vertex_group_assign()
-
-        #To object mode , create obj2 to copy normals from
-        bpy.ops.object.editmode_toggle()
-
-        bpy.ops.object.duplicate()
-        obj2=bpy.context.active_object
-        obj2.name=obj2.name.split('.')[0]+'-vertnorm-source'
-
-        #To edit mode  remove unselected faces (bevels) from object
-        bpy.ops.object.editmode_toggle()
-        bpy.ops.mesh.select_all(action='INVERT')
-        bpy.ops.mesh.delete(type='FACE')
-
-        #To object mode , hide obj2 add data transf modif to obj1
-
-        obj2.hide=True
-        obj.select=True
-        bpy.context.scene.objects.active=obj
-        bpy.ops.object.modifier_add(type='DATA_TRANSFER')
-        obj.modifiers['DataTransfer'].object=obj2
-        obj.modifiers['DataTransfer'].use_loop_data=True
-        obj.modifiers['DataTransfer'].data_types_loops={'CUSTOM_NORMAL'}
-
-        return {'FINISHED'}
 
 
 
@@ -520,13 +480,17 @@ class NZTPanel(bpy.types.Panel):
         sce = context.scene
 
         row = layout.row()
-        row.label(text="Project root:  ", icon='WORLD_DATA')
+        row.label(text="mesh export paths:  ", icon='WORLD_DATA')
         
         row = layout.row()
-        row.prop(bpy.context.scene.nztprops,"engineroot",text='')
+        row.prop(bpy.context.scene.nztprops,"engineroot",text='game')
+        row = layout.row()
+        row.prop(bpy.context.scene.nztprops,"bakemeshespath",text='bake')
         row = layout.row()
         row.prop(bpy.context.scene.nztprops,"unity5",text='unity5 scale')
-
+        row = layout.row()
+        row.prop(bpy.context.scene.nztprops,"packerpath",text='uvpack app')
+    
 
         row = layout.row()
         row.label(text="Export ops :", icon='EXPORT')
@@ -593,7 +557,6 @@ def register():
     bpy.utils.register_class(OpNZTextrasDataNamefromObject)
     bpy.utils.register_class(OpNZTextrasSwitchMatType)
 
-    bpy.utils.register_class(OpNZTcustomNormalFacesAverage)
     bpy.utils.register_class(OpNZTorigintoselected)
 
 
@@ -615,7 +578,6 @@ def unregister():
     bpy.utils.unregister_class(OpNZTextrasDataNamefromObject)
     bpy.utils.unregister_class(OpNZTextrasSwitchMatType)    
 
-    bpy.utils.unregister_class(OpNZTcustomNormalFacesAverage)
     bpy.utils.unregister_class(OpNZTorigintoselected)
 
 
