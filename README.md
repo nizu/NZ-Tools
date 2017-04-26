@@ -1,5 +1,6 @@
 # NZ-Tools
-Blender addon
+Blender addon.
+
 My shelf tools for export to Substance and Unity and some frequently used modelling tools and shortcuts.
 
 ![alt text](https://nizuvault.files.wordpress.com/2017/04/croppercapture64.jpg)
@@ -44,11 +45,12 @@ It does a bunch of clean up operations, mostly to do a clean join of the meshes 
 
 ///Modelling tools :
 
-–Weighted normals :  calls the script by Simon Lusenc, needs to be installed separately, get it here : 
+–Weighted normals :  calls the script by Simon Lusenc, needs to be installed separately, get it here:
+
 https://blenderartists.org/forum/showthread.php?372785-Addon-Weighted-Normals-Calculator
 The weighted normals method does a great job of ‘automatic’ custom normals editing, often as good as what you can do manually with data transfers and i.e. Blend4web tools.
 
-–Clear custom normals : just a button for that op. , i use it often, my workflow with custom normals is basically :  try Weighted N. script , if result is not good try adding some sharp edges, if that’s still not good (mesh too lowpoly to improve with custom normals) then clear custom normals and use base tools. 
+–Clear custom normals : just a button for that op, not an additional script, but i use it often, my workflow with custom normals is basically :  try Weighted N. script , if result is not good try adding some sharp edges, if that’s still not good (mesh too lowpoly to improve with custom normals) then clear custom normals and use standard normals calculations. 
 Only exception is sometimes i use Blend4web to average and flatten normals on a plane that is flat but is showing bad diagonal normals.
 
 –Origin to selected :  Just reduces 2 clicks to 1 for the operation of setting pivot of object to selected vertex 😀
