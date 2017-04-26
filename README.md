@@ -2,7 +2,7 @@
 my Blender shelf tools (Substance and Unity export)
 
 
-[alt text](https://nizuvault.files.wordpress.com/2017/04/croppercapture64.jpg)
+![alt text](https://nizuvault.files.wordpress.com/2017/04/croppercapture64.jpg)
 
 
 UI and operators description (DRAFT)
