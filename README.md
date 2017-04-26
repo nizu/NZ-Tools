@@ -9,9 +9,12 @@ UI and operators description (DRAFT)
 
 ///Configuration options :
 
-–Project root :  the ‘asset folder’ of your unity project,  assets will be exported in  meshes subfolder.  bake meshes exported in a subfolder of blend file location. (1st on todo list is making this flexible)
+– Game (game assets directoty) :  the ‘asset folder’ of your Unity project, assets will be exported in a '/meshes' subfolder.  
 
-–packer path : path to the executable of ‘iPackThat’ .. i’m using it for better packing of uvs, but it’s not FOSS, and i hear support isn’t great, works well for me , but be aware and check this thread if you plan to buy it : polycount.com/discussion/comment/2542014
+-Bake (bake meshes directory) : where to save fbx files for Substance bakes.
+
+–packer path : path to the executable of ‘iPackThat’ (to be moved in addong config, not per-scene config ..) 
+I’m using this app for better packing of uvs, but it’s not FOSS, and i hear support isn’t great, works well for me , but be aware and check this thread if you plan to buy it : polycount.com/discussion/comment/2542014
 
 -Unity 5 checkbox : just changes the ‘use units scale’ parameter in fbx export to work with unity 5 or unity 4
 
