@@ -1,4 +1,4 @@
-# NZ-Tools
+﻿# NZ-Tools
 Blender addon.
 
 My shelf tools for export to Substance and Unity and some frequently used modelling tools and shortcuts.
@@ -63,3 +63,4 @@ These properties are normally set automatically following the workflow (prep low
 Groups made of instances of original pieces, can be left with the 'hipoly' empty, and used only to export to engine.
 
 
+test
