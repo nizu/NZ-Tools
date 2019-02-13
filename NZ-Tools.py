@@ -11,30 +11,41 @@ bl_info = {
     'author': 'Ni Zu',
     'location': 'scene panel',
     'category': 'Scene',
-    "version": (0, 41)
+    "version": (0, 40)
     }
 
 import bpy , os , sys , random , subprocess
 
 class nztprops(bpy.types.PropertyGroup):
-    bakemeshespath=bpy.props.StringProperty(subtype="DIR_PATH", default='//bake-meshes')
-    engineroot= bpy.props.StringProperty(subtype="DIR_PATH")
-    packerpath= bpy.props.StringProperty(subtype="FILE_PATH",default='C:\steam\steamapps\common\IPackThat\IPackThat.exe')
+    bakemeshespath:bpy.props.StringProperty(subtype="DIR_PATH", default='//bake-meshes')
+    engineroot: bpy.props.StringProperty(subtype="DIR_PATH")
+    packerpath: bpy.props.StringProperty(subtype="FILE_PATH",default='C:\steam\steamapps\common\IPackThat\IPackThat.exe')
 
-    unity5=bpy.props.BoolProperty()
-    writefbx=bpy.props.BoolProperty()
+    unity5:bpy.props.BoolProperty()
+    writefbx:bpy.props.BoolProperty(description='complete export writing fbx or just place objects in staging scene')
     
     
 class nztroot(bpy.types.PropertyGroup):
-    is_lopo_root=bpy.props.BoolProperty(description='is this object root-parent of a set of lowpoly chunks')
-    hipo_target=bpy.props.StringProperty(description='name of hipoly root-parent corresponding to this lowpoly') 
+    is_lopo_root:bpy.props.BoolProperty(description='is this object the root-parent of a set of lowpoly chunks, for baking')
+    is_asset_root:bpy.props.BoolProperty(description='is this object the root-parent of a set of lowpoly chunks, for export')
     
+    hipo_target:bpy.props.StringProperty(description='name of hipoly root-parent corresponding to this lowpoly') 
+    
+    lock_uv1:bpy.props.BoolProperty(description='lock 2nd uv channel, if disabled uv1 will be a non-overlapping repack of all islands in all lowpoly chunks')
+    
+    lightmap_uv1:bpy.props.BoolProperty(description='if enabled uv1 will be repacked to 0-1 space for lightmap, if disabled it will be scaled to have consistent scale between objects, for detailmaps') 
+    
+    
+    uv1_padding:bpy.props.FloatProperty(default=0.006,description= 'padding for uv1 repack')
+                
+    uv1_scale:bpy.props.FloatProperty(default=1,description= 'scale for uv1 repack')
+               
 
 
-class OpNZTGameAssetPrepLoPo(bpy.types.Operator):
-    "prepare meshes for hipoly and texturing"
-    bl_idname = "scene.nzt_prep_lo"
-    bl_label = "Prep Lowpoly"
+class NZTpreplopo(bpy.types.Operator):
+    """prepare meshes for hipoly and texturing"""
+    bl_idname="scene.nztpreplopo"    
+    bl_label= "Prep Lowpoly"
     
      
     def execute(self, context):
@@ -45,19 +56,22 @@ class OpNZTGameAssetPrepLoPo(bpy.types.Operator):
                 lopos.append(ob)    
         for ob in lopos:
             if ob.name.endswith('-lopo'):
+                ob.data.name = ob.name
                 pass
             else:
-                for group in ob.users_group:
-                    if group.name == 'extra':
-                        pass
-                else:
-                    ob.name = ob.name+'-lopo'
-
+#                for group in ob.users_group:
+#                    if group.name == 'extra':
+#                        pass
+#                else:
+                ob.name = ob.name+'-lopo'
+                ob.data.name = ob.name
+                
+                
         bpy.ops.view3d.snap_cursor_to_selected()
         bpy.context.scene.cursor_location[2]=0
         bpy.ops.object.add()
-        activeob=bpy.context.scene.objects.active
-        activeob.empty_draw_type='CIRCLE'
+        activeob=bpy.context.view_layer.objects.active
+        activeob.empty_display_type='CIRCLE'
         activeob.nztroot.is_lopo_root=True
         
         N=0
@@ -69,8 +83,8 @@ class OpNZTGameAssetPrepLoPo(bpy.types.Operator):
         activeob.name=assetname
 
         for ob in lopos:
-            ob.select=True
-        bpy.context.scene.objects.active=bpy.data.objects[assetname]        
+            ob.select_set(True)
+        bpy.context.view_layer.objects.active=bpy.data.objects[assetname]        
         bpy.ops.object.parent_set(keep_transform=True)    
         return {'FINISHED'}
     
@@ -97,6 +111,8 @@ class OpNZTGameAssetPrepHiPo(bpy.types.Operator):
             if ob.type=='MESH':
                 ob.name = ob.name.replace('-lopo','-hipo')           
                 ob.name = ob.name.split('.')[0] 
+                ob.data.name = ob.name 
+
             if ob.type=='EMPTY':
                 ob.name = ob.name.split('.')[0]+'root-hipo' 
                 ob.nztroot.is_lopo_root=False
@@ -155,25 +171,25 @@ class OpNZTGameAssetExport(bpy.types.Operator):
         #cleanup stg--scn
             print('cleanup')
             
-            bpy.context.screen.scene=bpy.data.scenes[('stg-'+bpy.context.scene.name )]            
+            bpy.context.window.scene=bpy.data.scenes[('stg-'+bpy.context.scene.name )]            
             bpy.ops.object.select_all(action='DESELECT')
 
             for ob in bpy.context.scene.objects:
                if ob.type=='EMPTY':
-                   ob.select=False
+                   ob.select_set(False)
                else:
                    ob.name='deleteme'
-                   ob.select=True 
+                   ob.data.name='deleteme'
+                   ob.select_set(True)
             
             bpy.ops.object.delete()
-            bpy.context.screen.scene=origscene
+            bpy.context.window.scene=origscene
                 
     #else create it
         else:
             bpy.ops.scene.new(type='EMPTY')    
             bpy.context.scene.name=('stg-'+origscene.name ) 
-            bpy.context.screen.scene=origscene
-
+            bpy.context.window.scene=origscene
 
 # create list of export assets from parenting and names:
 
@@ -183,16 +199,19 @@ class OpNZTGameAssetExport(bpy.types.Operator):
 
 
             if obj.type=='EMPTY':
-                if obj.nztroot.is_lopo_root==True:
+                if obj.nztroot.is_asset_root==True:
                     roots.append(obj)    
 
         for root in roots:
             
 # toggle for repacking or not uv1 for roots with custom uv1
-            HasUV1=False            
+            if root.nztroot.lock_uv1==True:
+                HasUV1=True
+            else:
+                HasUV1=False             
             
 #set cursor to asset pivot
-            bpy.context.scene.objects.active=root
+            bpy.context.view_layer.objects.active=root
             
             bpy.ops.view3d.snap_cursor_to_active()
 
@@ -206,14 +225,14 @@ class OpNZTGameAssetExport(bpy.types.Operator):
 
 # set all obs to use object material, used to have a different set of mat names in unity            
             for ob in bpy.context.selected_objects:
-                bpy.context.scene.objects.active=ob
+                bpy.context.view_layer.objects.active=ob
                 for slot in ob.material_slots:
                     slotmat=slot.material
                     slot.link='OBJECT'
                     if slot.material==None:       
                         slot.material=slotmat
             
-            bpy.context.scene.objects.active=bpy.context.selected_objects[0]
+            bpy.context.view_layer.objects.active=bpy.context.selected_objects[0]
 
             bpy.ops.object.duplicates_make_real()
             bpy.ops.object.make_single_user(type='SELECTED_OBJECTS', object=True, obdata=True)
@@ -230,18 +249,18 @@ class OpNZTGameAssetExport(bpy.types.Operator):
 # clear leftover empty parents in case dupligroups were used
             for obj in sel:
                 if obj.type=='EMPTY':
-                    obj.select=True
+                    obj.select_set(True)
                     bpy.ops.object.delete(use_global=False)
     
             for obj in sel:
-                obj.select=True
+                obj.select_set(True)
             
-            bpy.context.scene.objects.active=bpy.context.selected_objects[0]    
+            bpy.context.view_layer.objects.active=bpy.context.selected_objects[0]    
             bpy.ops.object.convert(target='MESH')
                         
 
             for obj in meshes:
-                scn.objects.active = obj
+                bpy.context.view_layer.objects.active = obj
                 
                 
     #clear deltas used for exploded bake
@@ -290,7 +309,6 @@ class OpNZTGameAssetExport(bpy.types.Operator):
 #                print('uv-cleanup of ',obj.name)
 
                 UVs=obj.data.uv_layers
-#               HasUV1=False
                 if UVs:
 
         # 1st channel always renamed uv0 , 2nd = uv1
@@ -302,31 +320,40 @@ class OpNZTGameAssetExport(bpy.types.Operator):
                         
                         bpy.ops.mesh.uv_texture_add()
                         UVs[1].name ='uv1'                    
-#                        print('1uv found adding copy for lm')
+                        print('only 1  uv found, adding copy for lm')
+
                         HasUV1=False
                         
                     elif len(UVs) >=2 :
                         
                         if UVs[1].name =='uv1':
                             HasUV1=True
+                            print('custom uv1 found')
                             pass
- #                           print('custom lm found')
+
+                        elif root.nztroot.lock_uv1 ==True:
+                            HasUV1=True
+                            UVs[1].name ='uv1'
+                            print('custom uv1 found')
+                            pass
+                            
+
                         else:    
-                            obj.data.uv_textures.active=obj.data.uv_textures[1]
+                            obj.data.uv_layers.active=obj.data.uv_layers[1]
                             bpy.ops.mesh.uv_texture_remove()
                             bpy.ops.mesh.uv_texture_add()
                             UVs[1].name ='uv1'
-#                            print('2nd uv not named, copying 1 to 2 for lm')
+                            print('2nd uv not named, copying uv0 to uv1 for repack')
 
                 else:
                     bpy.ops.uv.smart_project()
                     UVs[0].name='uv0'
                     bpy.ops.mesh.uv_texture_add()
                     UVs[1].name ='uv1'
-#                    print('no UVs found, adding dummy')
+                    print('no UVs found, adding dummy')
 
 
-# join mesh parts of asset, unparent and weld verts.
+# join mesh parts of asset, unparent (# forgot why..) and weld verts.
 
             bpy.ops.object.join()
             
@@ -334,29 +361,27 @@ class OpNZTGameAssetExport(bpy.types.Operator):
             
             bpy.ops.object.editmode_toggle()
             bpy.ops.mesh.select_all(action='SELECT')
-#            bpy.ops.mesh.remove_doubles(threshold=0.001)
+            bpy.ops.mesh.remove_doubles(threshold=0.001)
 
             bpy.ops.object.mode_set()
-            scn.objects.active = bpy.context.selected_objects[0]
-            scn.objects.active.name =root.name+'-joined'
-            scn.objects.active.data.name =root.name+'-joined'
+            bpy.context.view_layer.objects.active = bpy.context.selected_objects[0]
+            bpy.context.view_layer.objects.active.name =root.name+'-joined'
+            
+            dataname =(root.name+'-joined')[2:]
+            
+            for mesh in bpy.data.meshes:
+                if mesh.name ==dataname:
+                    mesh.name=dataname+'old' 
+            
+            bpy.context.view_layer.objects.active.data.name =dataname
             
             obj=bpy.data.objects[root.name+'-joined']           
 
 ## forced repack of channel 1..
 
-            obj.data.uv_textures.active=obj.data.uv_textures[1]
+            obj.data.uv_layers.active=obj.data.uv_layers[1]
             
-#           HasUV1=False
-            try:
-                if root['uv1lock']: 
-                    HasUV1=True
-                else:
-                    HasUV1=False
-            except:    
-                HasUV1=False
-            
-                
+
             if HasUV1==False :
                 bpy.ops.object.editmode_toggle()
      
@@ -370,22 +395,19 @@ class OpNZTGameAssetExport(bpy.types.Operator):
                 bpy.ops.uv.average_islands_scale()
 
     #            bpy.ops.uv.shotgunpack()
-                try:
-                    lmpadding=root['lmpad']
-                except:    
-                    lmpadding=0.006
                 
-                try:
-                    lmscale=root['lmscale']
-                except:     
-                    lmscale=1
+                lmpadding=root.nztroot.uv1_padding
+                
+                lmscale=root.nztroot.uv1_scale
                                         
                 bpy.ops.uv.pack_islands(rotate=False, margin=(lmpadding))
 
-                origarea = bpy.context.area.type
-                bpy.context.area.type = 'IMAGE_EDITOR'
-                bpy.ops.transform.resize(value=(obscale*lmscale,obscale*lmscale,obscale*lmscale))
-                bpy.context.area.type = origarea
+                if root.nztroot.lightmap_uv1==False:
+                    origarea = bpy.context.area.type
+                    bpy.context.area.ui_type = 'UV'
+                    bpy.context.area.type = 'IMAGE_EDITOR'
+                    bpy.ops.transform.resize(value=(obscale*lmscale,obscale*lmscale,obscale*lmscale))
+                    bpy.context.area.type = origarea
 
 #  weld verts.
             bpy.ops.object.mode_set()
@@ -426,8 +448,8 @@ class OpNZTGameAssetExport(bpy.types.Operator):
          
                 
                 bpy.ops.object.add()
-                activeob=bpy.context.scene.objects.active
-                activeob.empty_draw_type='SINGLE_ARROW'
+                activeob=bpy.context.view_layer.objects.active
+                activeob.empty_display_type='SINGLE_ARROW'
                 activeob.name=root.parent.name[2:]
                 activeob.location=root.parent.location
                 bpy.ops.object.make_links_scene(scene=('stg-'+bpy.context.scene.name ))
@@ -441,8 +463,8 @@ class OpNZTGameAssetExport(bpy.types.Operator):
             joinedroot=bpy.data.objects[(root.name+'-joined')]
             bpy.ops.object.select_all(action='DESELECT')
 
-            joinedroot.select=True
-            scn.objects.active=joinedroot
+            joinedroot.select_set(True)
+            bpy.context.view_layer.objects.active=joinedroot
 
             
                 
@@ -468,18 +490,19 @@ class OpNZTGameAssetExport(bpy.types.Operator):
             bpy.ops.object.delete()
  
                         
-# go to staging scene, export fbx file to game directory  
+        # go to staging scene
+        origscene=bpy.context.scene
+        bpy.context.window.scene=bpy.data.scenes[('stg-'+origscene.name )]            
+        scn=bpy.context.scene    
  
-        if bpy.context.scene.nztprops.writefbx:  
-            expdir=bpy.path.abspath(scn.nztprops.engineroot)
+# in staging scene, export fbx file to game directory  
+
+        if origscene.nztprops.writefbx:  
+            expdir=bpy.path.abspath(bpy.context.scene.nztprops.engineroot)
             if not os.path.exists(expdir):
                 os.makedirs(expdir)
         
             
-# go to staging scene
-            origscene=bpy.context.scene
-            bpy.context.screen.scene=bpy.data.scenes[('stg-'+origscene.name )]            
-            scn=bpy.context.scene    
 
 # find each object with no parent (top level) to export as separate fbx file.
              
@@ -488,8 +511,8 @@ class OpNZTGameAssetExport(bpy.types.Operator):
             for obj in toplevelobjects:            
                 bpy.ops.object.select_all(action='DESELECT')
                 
-                obj.select=True
-                scn.objects.active=obj
+                obj.select_set(True)
+                bpy.context.view_layer.objects.active=obj
                 bpy.ops.object.select_hierarchy(direction='CHILD',extend=True)
                 
                 filename=obj.name
@@ -501,6 +524,8 @@ class OpNZTGameAssetExport(bpy.types.Operator):
  
  
         
+            bpy.context.window.scene=origscene
+
         print('finished')
         return {'FINISHED'}
 
@@ -542,7 +567,7 @@ class OpNZTBakeExport(bpy.types.Operator):
             bpy.ops.object.select_all(action='DESELECT')
             for root in steproots:
                 bpy.ops.object.select_pattern(pattern=root.name,extend=True)
-                bpy.context.scene.objects.active=root
+                bpy.context.view_layer.objects.active=root
                 bpy.ops.object.select_hierarchy(direction='CHILD',extend=True)
 
                 exppath=bpy.path.abspath(bpy.context.scene.nztprops.bakemeshespath)+'\\'+bpy.context.scene.name +'-'+step+'.fbx'
@@ -575,7 +600,7 @@ class OpNZTPackExport(bpy.types.Operator):
         bpy.ops.import_scene.fbx(filepath=(exppath),global_scale=1)
         
         bpy.ops.object.select_pattern(pattern='packme-temp',extend=False)
-        bpy.context.scene.objects.active=bpy.data.objects['packme-temp.001']
+        bpy.context.view_layer.objects.active=bpy.data.objects['packme-temp.001']
         bpy.ops.object.join_uvs()
     
         bpy.ops.object.select_pattern(pattern='packme-temp.001',extend=False)    
@@ -611,13 +636,55 @@ class OpNZTorigintoselected(bpy.types.Operator):
 ####   USER INTERFACE
 ##########################
 
-
-class NZTPanel(bpy.types.Panel):
+class NZT_PT_ToolPanel(bpy.types.Panel):
     """Creates a Panel in the Object properties window"""
     bl_label = "NiZu-Tools Shelf-042"
-    bl_idname = "OBJECT_PT_NZT"
+    bl_idname = "NZT_PT_ToolPanel"
+
     bl_space_type = 'VIEW_3D'
-    bl_region_type = 'TOOLS'
+#    bl_region_type = 'TOOLS'
+    bl_region_type = 'UI'
+    bl_category = 'NZT'   
+    def draw(self, context):
+ 
+        sce = context.scene
+
+        layout = self.layout   
+        row = layout.row()
+        row.label(text="Export:", icon='MESH_ICOSPHERE')        
+        row = layout.row()
+        row.operator("scene.nzt_export")
+        row = layout.row()
+        row.operator("scene.nzt_bakeexport")
+        row = layout.row()
+        row.operator("scene.nzt_packexport")
+
+        row = layout.row()
+        row.label(text="Prepare", icon='MESH_ICOSPHERE')
+        row = layout.row(align=True)
+        row.operator("scene.nztpreplopo")
+        row.operator("scene.nzt_prep_hi")
+        
+###
+        row = layout.row()
+        row.label(text="Extra Tools", icon='MESH_CUBE')
+        row = layout.row()
+        row.operator("scene.nzt_switchmattype")
+        row = layout.row()
+        row.operator("mesh.customdata_custom_splitnormals_clear")
+        row = layout.row()
+
+        row.operator("object.nzt_origintoselected")
+
+        
+        
+class NZTUiPanel(bpy.types.Panel):
+    """Creates a Panel in the Object properties window"""
+    bl_label = "NZT-Settings"
+#    bl_idname = "OBJECT_PT_NZT"
+    bl_space_type = 'VIEW_3D'
+#    bl_region_type = 'TOOLS'
+    bl_region_type = 'UI'
     bl_category = 'NZT'   
 
     def draw(self, context):
@@ -633,47 +700,13 @@ class NZTPanel(bpy.types.Panel):
         row = layout.row()
         row.prop(bpy.context.scene.nztprops,"bakemeshespath",text='bake')
         row = layout.row()
+        row.prop(bpy.context.scene.nztprops,"writefbx",text='write .fbx')
+        row = layout.row()
         row.prop(bpy.context.scene.nztprops,"unity5",text='unity5 scale')
         row = layout.row()
         row.prop(bpy.context.scene.nztprops,"packerpath",text='uvpack app')
     
 
-        row = layout.row()
-        row.label(text="Export ops :", icon='EXPORT')
-        row = layout.row()
-        row.operator("scene.nzt_bakeexport")
-        row = layout.row()
-        row.operator("scene.nzt_packexport")
-        row = layout.row()
-        row.operator("scene.nzt_export")
-        row.prop(bpy.context.scene.nztprops,"writefbx",text='writefbx')
-        row = layout.row()
-        
-        row = layout.row()
-        row.label(text="mesh prep. ops:", icon='MESH_ICOSPHERE')
-  
-        row = layout.row()
-        row.operator("scene.nzt_prep_lo")
-        row = layout.row()
-        row.operator("scene.nzt_prep_hi")
-        
-        row = layout.row()
-        row.label(text="extra/cleanup ops:", icon='MESH_ICOSPHERE')
-        row = layout.row()
-        row.operator("scene.nzt_renamedata")
-        row = layout.row()
-        row.operator("scene.nzt_switchmattype")
-
-        
-        row = layout.row()
-        row.label(text="Modelling Tools", icon='MESH_CUBE')
-        row = layout.row()
-        row.operator("object.calculate_weighted_normals")
-        row = layout.row()
-        row.operator("mesh.customdata_custom_splitnormals_clear")
-        row = layout.row()
-
-        row.operator("object.nzt_origintoselected")
         
         row = layout.row()
         row.label(text="NZT Object properties", icon='MESH_CUBE')
@@ -682,53 +715,54 @@ class NZTPanel(bpy.types.Panel):
         objType = getattr(ob, 'type', '')
         if objType=='EMPTY':
             row.prop(bpy.context.object.nztroot,"is_lopo_root", text='Lowpoly root')
+            row = layout.row()
             if bpy.context.object.nztroot.is_lopo_root==True :
-                row = layout.row()
                 row.prop(bpy.context.object.nztroot,"hipo_target", text='hipoly:')
-        
+                row = layout.row()
+            row.prop(bpy.context.object.nztroot,"is_asset_root", text='export root')
+            if bpy.context.object.nztroot.is_asset_root==True :
+                row.prop(bpy.context.object.nztroot,"lock_uv1", text='lock_uv1')
+                if bpy.context.object.nztroot.lock_uv1==False :
+                    row = layout.row()
+                    row.prop(bpy.context.object.nztroot,"lightmap_uv1", text='lightmap_uv1')
+                    row = layout.row()
+                    row.prop(bpy.context.object.nztroot,'uv1_padding')     
+                    row = layout.row()
+                    row.prop(bpy.context.object.nztroot,'uv1_scale')
+
+       
+       
+NZTclasses=(NZT_PT_ToolPanel,NZTUiPanel,OpNZTGameAssetExport,OpNZTBakeExport,OpNZTPackExport,NZTpreplopo,OpNZTGameAssetPrepHiPo,OpNZTextrasSwitchMatType,OpNZTorigintoselected,)   
+
+
+
 def register():
+    for NZTclass in NZTclasses:
+        bpy.utils.register_class(NZTclass)    
+
     bpy.utils.register_class(nztprops)
     bpy.types.Scene.nztprops = bpy.props.PointerProperty(type=nztprops)
-
     bpy.utils.register_class(nztroot)
     bpy.types.Object.nztroot = bpy.props.PointerProperty(type=nztroot)
-    
-    
-    
-    bpy.utils.register_class(NZTPanel)
-    bpy.utils.register_class(OpNZTGameAssetExport)
-    bpy.utils.register_class(OpNZTBakeExport)
-    bpy.utils.register_class(OpNZTPackExport)
-
-    bpy.utils.register_class(OpNZTGameAssetPrepLoPo)
-    bpy.utils.register_class(OpNZTGameAssetPrepHiPo)
-    bpy.utils.register_class(OpNZTextrasDataNamefromObject)
-    bpy.utils.register_class(OpNZTextrasSwitchMatType)
-
-    bpy.utils.register_class(OpNZTorigintoselected)
 
 
 def unregister():
+
+    for NZTclass in NZTclasses:
+        bpy.utils.unregister_class(NZTclass)    
+
     bpy.utils.unregister_class(nztprops)
     del(bpy.types.Scene.nztprops)
-    
     bpy.utils.unregister_class(nztroot)
     del(bpy.types.Object.nztroot)
-    
-    
-    bpy.utils.unregister_class(NZTPanel)
-    bpy.utils.unregister_class(OpNZTGameAssetExport)
-    bpy.utils.unregister_class(OpNZTBakeExport)
-    bpy.utils.unregister_class(OpNZTPackExport)
 
-    bpy.utils.unregister_class(OpNZTGameAssetPrepLoPo)
-    bpy.utils.unregister_class(OpNZTGameAssetPrepHiPo)
-    bpy.utils.unregister_class(OpNZTextrasDataNamefromObject)
-    bpy.utils.unregister_class(OpNZTextrasSwitchMatType)    
 
-    bpy.utils.unregister_class(OpNZTorigintoselected)
+
+    
+#register, unregister = bpy.utils.register_classes_factory(NZTclasses) 
+    
 
 
 if __name__ == "__main__":
     register()
-    
+
