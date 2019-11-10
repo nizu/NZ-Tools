@@ -1,4 +1,4 @@
-#todo  make single for SP bake
+        #todo  make single for SP bake
 
 
 #----------------------------------------------------------
@@ -11,7 +11,7 @@ bl_info = {
     'author': 'Ni Zu',
     'location': '3D view',
     'category': 'Scene',
-    "version": (0, 42)
+    "version": (0, 45)
     }
 
 import bpy , os , sys , random , subprocess
@@ -28,6 +28,7 @@ class nztprops(bpy.types.PropertyGroup):
     packerpath: bpy.props.StringProperty(subtype="FILE_PATH",default='C:\steam\steamapps\common\IPackThat\IPackThat.exe')
 
     unity5:bpy.props.BoolProperty()
+    usecollectionroots:bpy.props.BoolProperty(default=False)    
     writefbx:bpy.props.BoolProperty(description='complete export writing fbx or just place objects in staging scene')
     
     
@@ -250,6 +251,37 @@ class OpNZTPrepUVchannels(bpy.types.Operator):
 
         return {'FINISHED'}
  
+class OpNZTactivateUVchannel0(bpy.types.Operator):
+    "make uv channel 0 active on selected objects"
+    bl_idname = "object.nzt_activateuv0"
+    bl_label = "UV0"
+     
+    def execute(self, context): 
+        
+        for obj in context.selected_objects:
+            if obj.type=='MESH':
+                UVs=obj.data.uv_layers
+                if UVs:        
+                    obj.data.uv_layers.active=obj.data.uv_layers[0]
+
+        return {'FINISHED'}
+
+class OpNZTactivateUVchannel1(bpy.types.Operator):
+    "make uv channel 1 active on selected objects"
+    bl_idname = "object.nzt_activateuv1"
+    bl_label = "UV1"
+     
+    def execute(self, context): 
+        
+        for obj in context.selected_objects:
+            if obj.type=='MESH':
+                UVs=obj.data.uv_layers
+                if len(UVs)>=2:        
+                    obj.data.uv_layers.active=obj.data.uv_layers[1]
+
+        return {'FINISHED'}    
+
+
 ########################################
 #
 #    EXPORT OPERATORS
@@ -267,6 +299,28 @@ class OpNZTGameAssetExport(bpy.types.Operator):
         print('exporting current scene game assets ')
 
 
+
+# create list of export assets from parenting and names:
+
+
+        roots=[]
+        fileroots=[]
+
+# create list of export root objects or collections
+
+        if bpy.context.scene.nztprops.usecollectionroots: 
+
+            for fileroot in bpy.context.view_layer.layer_collection.children['export'].children:
+                fileroots.append(fileroot)
+                for root in fileroot.children: 
+                    roots. append(root)
+        else:
+            for obj in context.visible_objects:
+                if obj.type=='EMPTY':
+                    if obj.nztroot.is_asset_root==True:
+                        roots.append(obj)    
+    
+
 # check if staging scene exists :
  
         origscene=context.scene
@@ -274,23 +328,26 @@ class OpNZTGameAssetExport(bpy.types.Operator):
 
         if  ('stg-'+sce.name ) in bpy.data.scenes:
 
-        #cleanup stg--scn
+            #cleanup stg--scn
             print('cleanup')
             
             context.window.scene=bpy.data.scenes[('stg-'+sce.name )]
             sce=context.scene            
             bpy.ops.object.select_all(action='DESELECT')
 
+            if bpy.context.scene.nztprops.usecollectionroots: 
+                objtoclean = [root.name for root in roots]
 
-##### TODO cleanup using exported object collection
+            else:
+                objtoclean = [root.name[2:] for root in roots]
 
             for ob in sce.objects:
-               if ob.type=='EMPTY':
-                   ob.select_set(False)
-               else:
-                   ob.name='deleteme'
-                   ob.data.name='deleteme'
-                   ob.select_set(True)
+                if ob in objtoclean:
+                    ob.name='deleteme'
+                    ob.data.name='deleteme'
+                    ob.select_set(True)
+                else:
+                    pass
             
             bpy.ops.object.delete()
             context.window.scene=origscene
@@ -298,51 +355,91 @@ class OpNZTGameAssetExport(bpy.types.Operator):
                 
     #else create it
         else:
-            bpy.ops.scene.new(type='EMPTY')    
+            bpy.ops.scene.new(type='EMPTY')
+            sce=context.scene    
             sce.name=('stg-'+origscene.name ) 
             context.window.scene=origscene
             sce=context.scene
 
-# create list of export assets from parenting and names:
 
-
-        roots=[]
-        for obj in context.visible_objects:
-
-
-            if obj.type=='EMPTY':
-                if obj.nztroot.is_asset_root==True:
-                    roots.append(obj)    
 
 
 
 
 
         for root in roots:
-            
-# toggle for repacking or not uv1 for roots with custom uv1
-            if root.nztroot.lock_uv1==True:
+
+### objects selection with parents or collections :
+
+            if bpy.context.scene.nztprops.usecollectionroots:             
                 HasUV1=True
+                bpy.context.scene.cursor.location=root.collection.instance_offset
+                bpy.ops.object.select_all(action='DESELECT')
+                for obj in root.collection.objects:
+                    obj.select_set(True)
+                bpy.ops.object.duplicate()
+                sel = context.selected_objects
+
             else:
-                HasUV1=False             
+# toggle for repacking or not uv1 for roots with custom uv1
+                if root.nztroot.lock_uv1==True:
+                    HasUV1=True
+                else:
+                    HasUV1=False             
+                
+    #set cursor to asset pivot
+                context.view_layer.objects.active=root
+                bpy.ops.view3d.snap_cursor_to_active()
+
+    #Select parts of asset    
+                bpy.ops.object.select_pattern(pattern=root.name,extend=False)
+                bpy.ops.object.select_hierarchy(direction='CHILD')
+
+    #create copy of parts for export
+                bpy.ops.object.duplicate()
+                context.view_layer.objects.active=context.selected_objects[0]
+
+    #  convert root parent empties that use collection instance to meshes.
+                sel = context.selected_objects
+                
+                if root.instance_type=='COLLECTION':
+                    bpy.ops.object.duplicates_make_real(use_base_parent=True)
+                    bpy.ops.object.select_hierarchy(direction='CHILD',extend=True)
+                    sel = context.selected_objects
+
+#  convert also child objects that use collection instance to mesh.
             
-#set cursor to asset pivot
-            context.view_layer.objects.active=root
-            bpy.ops.view3d.snap_cursor_to_active()
+            origsel = bpy.context.selected_objects
+            bpy.ops.object.select_all(action='DESELECT')
 
-#Select parts of asset    
-            bpy.ops.object.select_pattern(pattern=root.name,extend=False)
-            bpy.ops.object.select_hierarchy(direction='CHILD')
 
-#create copy of parts for export, store selection list , apply modifiers
+            for obj in origsel:
+               if obj.instance_type=='COLLECTION':
+                    bpy.ops.object.select_all(action='DESELECT')
+                    obj.select_set(True)
+                    context.view_layer.objects.active=obj
+                        
+                    bpy.ops.object.duplicates_make_real(use_base_parent=True)
+                    bpy.ops.object.select_grouped(extend=True, type='CHILDREN_RECURSIVE')
+                    sel.extend(bpy.context.selected_objects)
+                    #print (sel)    
 
-            bpy.ops.object.duplicate()
+# remove parenting, make each object unique and apply modifiers.
+            
+            #print(root,'-----',sel)
+            
+            bpy.ops.object.select_all(action='DESELECT')
+            for obj in sel:
+                obj.select_set(True)
             context.view_layer.objects.active=context.selected_objects[0]
-            bpy.ops.object.make_single_user(type='SELECTED_OBJECTS', object=False, obdata=True)
+
+            bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
+            bpy.ops.object.make_single_user(type='SELECTED_OBJECTS', object=True, obdata=True)
             bpy.ops.object.convert(target='MESH')
 
-# set all obs to use object material, used to have a different set of mat names in unity            
-# only replace by-object material assignment if not using that link mode already.
+
+# set all obs to use per-object material, used to have different mat names in engine than when texturing.            
+# only replaces the per-object material assignment if not using that link mode already.
 
 
             for ob in context.selected_objects:
@@ -353,43 +450,56 @@ class OpNZTGameAssetExport(bpy.types.Operator):
                         slot.link='OBJECT'
                         slot.material=slotmat
 
-  
 
-# clear leftover empty parents in case dupligroups were used (broken, because make real leaves objects unselected now..)
+# clear leftover empties
+
+            #print(sel)
             
-            sel = context.selected_objects
+            
             meshes = [ob for ob in sel if ob.type == 'MESH']
             bpy.ops.object.select_all(action='DESELECT')
 
-##          bpy.ops.object.duplicates_make_real()
-
 
             for obj in sel:
-                if obj.type=='EMPTY':
-                    obj.select_set(True)
-                    bpy.ops.object.delete(use_global=False)
-    
+                if len(obj.material_slots) != 0:
+                    if obj.type=='MESH' and obj.material_slots[0].material.name=='collision':
+                        meshes.remove(obj)
+                        obj.select_set(True)
+                        bpy.ops.object.delete(use_global=False)
+                     
+
             for obj in sel:
-                obj.select_set(True)
-            
-            context.view_layer.objects.active=context.selected_objects[0]    
+                try:
+                    if obj.type=='EMPTY':
+                        sel.remove(obj)
+                        obj.select_set(True)
+                        bpy.ops.object.delete(use_global=False)
+                        
+                except:
+                    pass
+                
+                
                         
 
 # prepare each part for join:
 
 
             for obj in meshes:
-                context.view_layer.objects.active = obj
-                
-                
+                #print(obj.name,obj.scale)
+                bpy.ops.object.select_all(action='DESELECT')
+                obj.select_set(True)
+                bpy.context.view_layer.objects.active = obj
+                                
     #clear deltas used for exploded bake
                 obj.delta_location=[0,0,0]            
                 
                 
                 scale=obj.scale
+                #print(scale)
     # fix negative scaling causing flipped normals on join   
 
-                if scale[0]<0 or scale[1]<0 or scale[2] <0 :
+                if (scale[0]*scale[1]*scale[2])<0 :
+                    print('flipped object found')
 
                     bpy.ops.object.editmode_toggle()
                     bpy.ops.mesh.reveal()
@@ -399,16 +509,23 @@ class OpNZTGameAssetExport(bpy.types.Operator):
                     bpy.ops.mesh.flip_normals() # just flip normals
 
                     bpy.ops.object.mode_set()
-            
-    # normals cleanup , fix join with custom normal parts
-                
-        #if mesh is using auto-smooth and has no custom data, apply automooth as sharp edges , then  add custom normals        
 
-                if obj.data.use_auto_smooth==True and obj.data.has_custom_normals==False :
-                    sharpangle=obj.data.auto_smooth_angle
-                else:
+                bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
+
+    # normals cleanup , fix join with custom normal parts
+    #if mesh is using auto-smooth and has no custom data, apply automooth as sharp edges , then  add custom normals        
+
+                sharpangle=180
+                if obj.data.has_custom_normals==True :
                     sharpangle=180
-                    obj.data.use_auto_smooth=True
+                                
+                else:
+                    if obj.data.use_auto_smooth==True :
+                        sharpangle=obj.data.auto_smooth_angle
+                    else:    
+                        sharpangle=180
+                        obj.data.auto_smooth_angle=180
+                        obj.data.use_auto_smooth=True
 
                 bpy.ops.object.editmode_toggle()
                 bpy.ops.mesh.reveal()
@@ -441,44 +558,50 @@ class OpNZTGameAssetExport(bpy.types.Operator):
                     UVs[0].name='uv0'
         
                     
-                    if len(UVs) ==1 :
-                        
-                        bpy.ops.mesh.uv_texture_add()
-                        UVs[1].name ='uv1'                    
-                        print('only 1  uv found, adding copy for lm')
+#                    if len(UVs) ==1 :
+#                        
+#                        bpy.ops.mesh.uv_texture_add()
+#                        UVs[1].name ='uv1'                    
+#                        print('only 1  uv found, adding copy for lm')
 
-                        HasUV1=False
-                        
-                    elif len(UVs) >=2 :
-                        
-                        if UVs[1].name =='uv1':
-                            HasUV1=True
-                            print('custom uv1 found')
-                            pass
+#                        HasUV1=False
+#                        
+#                    elif len(UVs) >=2 :
+#                        
+#                        if UVs[1].name =='uv1':
+#                            HasUV1=True
+#                            print('custom uv1 found')
+#                            pass
 
-                        elif root.nztroot.lock_uv1 ==True:
-                            HasUV1=True
-                            UVs[1].name ='uv1'
-                            print('custom uv1 found')
-                            pass
-                            
+#                        elif root.nztroot.lock_uv1 ==True:
+#                            HasUV1=True
+#                            UVs[1].name ='uv1'
+#                            print('custom uv1 found')
+#                            pass
+#                            
 
-                        else:    
-                            obj.data.uv_layers.active=obj.data.uv_layers[1]
-                            bpy.ops.mesh.uv_texture_remove()
-                            bpy.ops.mesh.uv_texture_add()
-                            UVs[1].name ='uv1'
-                            print('2nd uv not named, copying uv0 to uv1 for repack')
+#                        else:    
+#                            obj.data.uv_layers.active=obj.data.uv_layers[1]
+#                            bpy.ops.mesh.uv_texture_remove()
+#                            bpy.ops.mesh.uv_texture_add()
+#                            UVs[1].name ='uv1'
+#                            print('2nd uv not named, copying uv0 to uv1 for repack')
 
-                else:
-                    bpy.ops.uv.smart_project()
-                    UVs[0].name='uv0'
-                    bpy.ops.mesh.uv_texture_add()
-                    UVs[1].name ='uv1'
-                    print('no UVs found, adding dummy')
+#                else:
+#                    bpy.ops.uv.smart_project()
+#                    UVs[0].name='uv0'
+#                    bpy.ops.mesh.uv_texture_add()
+#                    UVs[1].name ='uv1'
+#                    print('no UVs found, adding dummy')
 
 
 # join mesh parts of asset  and weld verts.
+            for obj in meshes:
+                obj.select_set(True)
+                    
+            bpy.context.view_layer.objects.active=context.selected_objects[0]    
+
+
 
             bpy.ops.object.join()
 
@@ -496,7 +619,7 @@ class OpNZTGameAssetExport(bpy.types.Operator):
                         
             bpy.ops.object.editmode_toggle()
             bpy.ops.mesh.select_all(action='SELECT')
-            bpy.ops.mesh.remove_doubles(threshold=0.001)
+#            bpy.ops.mesh.remove_doubles(threshold=0.0001)
 
             bpy.ops.object.mode_set()
             
@@ -506,44 +629,48 @@ class OpNZTGameAssetExport(bpy.types.Operator):
 
 ## forced repack of channel 1..
 
-            obj.data.uv_layers.active=obj.data.uv_layers[1]
-            
+#            obj.data.uv_layers.active=obj.data.uv_layers[1]
+#            
 
-            if HasUV1==False :
-                bpy.ops.object.editmode_toggle()
-     
-                bpy.ops.mesh.reveal()
-                bpy.ops.mesh.select_all(action='SELECT')
-                                
-                Di=obj.dimensions
-                obscale=(max(Di)+Di[0]+Di[0]+Di[0])*0.25   
-                
-                bpy.ops.uv.select_all(action='SELECT')
-                bpy.ops.uv.average_islands_scale()
+#            if HasUV1==False :
+#                bpy.ops.object.editmode_toggle()
+#     
+#                bpy.ops.mesh.reveal()
+#                bpy.ops.mesh.select_all(action='SELECT')
+#                                
+#                Di=obj.dimensions
+#                obscale=(max(Di)+Di[0]+Di[0]+Di[0])*0.25   
+#                
+#                bpy.ops.uv.select_all(action='SELECT')
+#                bpy.ops.uv.average_islands_scale()
 
-    #            bpy.ops.uv.shotgunpack()
-                
-                lmpadding=root.nztroot.uv1_padding
-                
-                lmscale=root.nztroot.uv1_scale
-                                        
-                bpy.ops.uv.pack_islands(rotate=False, margin=(lmpadding))
+#    #            bpy.ops.uv.shotgunpack()
+#                
+#                lmpadding=root.nztroot.uv1_padding
+#                
+#                lmscale=root.nztroot.uv1_scale
+#                                        
+#                bpy.ops.uv.pack_islands(rotate=False, margin=(lmpadding))
 
-                if root.nztroot.lightmap_uv1==False:
-                    origarea = context.area.type
-                    context.area.ui_type = 'UV'
-                    context.area.type = 'IMAGE_EDITOR'
-                    bpy.ops.transform.resize(value=(obscale*lmscale,obscale*lmscale,obscale*lmscale))
-                    context.area.type = origarea
+#                if root.nztroot.lightmap_uv1==False:
+#                    origarea = context.area.type
+#                    context.area.ui_type = 'UV'
+#                    context.area.type = 'IMAGE_EDITOR'
+#                    bpy.ops.transform.resize(value=(obscale*lmscale,obscale*lmscale,obscale*lmscale))
+#                    context.area.type = origarea
 
-#  weld verts.
-            bpy.ops.object.mode_set()
-            
+##  weld verts.
+#            bpy.ops.object.mode_set()
+
+
+#            obj.data.uv_layers.active=obj.data.uv_layers[0]
+
+
             bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
 
             bpy.ops.object.editmode_toggle()
             bpy.ops.mesh.select_all(action='SELECT')
-            bpy.ops.mesh.remove_doubles(threshold=0.0001      )
+#            bpy.ops.mesh.remove_doubles(threshold=0.0001      )
 
             bpy.ops.object.mode_set()
                  
@@ -564,62 +691,98 @@ class OpNZTGameAssetExport(bpy.types.Operator):
 
         print ('-----------------final links:',roots)
 
-# duplicate parents to export scene
+# Create parents in export scene
 
-        for root in roots:
-            
-            bpy.ops.object.select_all(action='DESELECT')
-            
-            
-            if root.parent!=None and bpy.data.objects.get(root.parent.name[2:]) is None:
-         
+        if bpy.context.scene.nztprops.usecollectionroots: 
+            for file in fileroots:
+                if bpy.data.objects.get(file.collection.name) is None:
                 
-                bpy.ops.object.add()
-                activeob=context.view_layer.objects.active
-                activeob.empty_display_type='SINGLE_ARROW'
-                activeob.name=root.parent.name[2:]
-                activeob.location=root.parent.location
-                bpy.ops.object.make_links_scene(scene=('stg-'+sce.name ))
-                bpy.ops.object.delete()
+                    bpy.ops.object.add()
+                    activeob=context.view_layer.objects.active
+                    activeob.empty_display_type='SINGLE_ARROW'
+                    activeob.name=file.collection.name
+                    activeob.location=0,0,0
+                    bpy.ops.object.make_links_scene(scene=('stg-'+sce.name ))
+                    bpy.ops.object.delete()
+
+            
+        else:
+            for root in roots:
+                if root.parent!=None and bpy.data.objects.get(root.parent.name[2:]) is None:
+             
+                    
+                    bpy.ops.object.add()
+                    activeob=context.view_layer.objects.active
+                    activeob.empty_display_type='SINGLE_ARROW'
+                    activeob.name=root.parent.name[2:]
+                    activeob.location=root.parent.location
+                    bpy.ops.object.make_links_scene(scene=('stg-'+sce.name ))
+                    bpy.ops.object.delete()
 
 
-##### TODO multiple levels of hierarchy, parents creation 
 
 
 
 # re-parent joined objects
 
-        for root in roots:
-            print('start :',root.name)
-            joinedroot=bpy.data.objects[(root.name+'-joined')]
-            bpy.ops.object.select_all(action='DESELECT')
+        if bpy.context.scene.nztprops.usecollectionroots:
+            for root in roots:
+                print('start :',root.name)
+                joinedroot=bpy.data.objects[(root.collection.name+'-joined')]
+                bpy.ops.object.select_all(action='DESELECT')
 
-            joinedroot.select_set(True)
-            context.view_layer.objects.active=joinedroot
+                joinedroot.select_set(True)
+                context.view_layer.objects.active=joinedroot
 
-            
-                
-            try:
-                bpy.ops.object.parent_clear(type= 'CLEAR_KEEP_TRANSFORM')
-                exportparent=bpy.data.objects[(root.parent.name[2:])]
-                print('exportparent:  ', exportparent.name)
+                for file in fileroots:
+                    for croot in file.children:
+                        if croot.collection.name==root.collection.name: 
+                            rootparentfile=file.collection.name
+
+                exportparent=bpy.data.objects[(rootparentfile)]
                 joinedroot.parent=exportparent       
-                joinedroot.matrix_parent_inverse = exportparent.matrix_world.inverted()
+#                joinedroot.matrix_parent_inverse = exportparent.matrix_world.inverted()
+                #print(joinedroot.name, '---',rootparentfile)
 
-                print('parent assigned' )
-            except:
-                print ('parent skipped') 
+                joinedroot.select_set(True)
+                context.view_layer.objects.active=joinedroot
+                joinedroot.name=joinedroot.name[:-7]
+                bpy.ops.object.make_links_scene(scene=('stg-'+sce.name ))
+                print('made links')
+                bpy.ops.object.delete()
 
-            joinedroot.name=joinedroot.name[2:-7]            
+
+        else:    
+            for root in roots:
+                print('start :',root.name)
+                joinedroot=bpy.data.objects[(root.name+'-joined')]
+                bpy.ops.object.select_all(action='DESELECT')
+
+                joinedroot.select_set(True)
+                context.view_layer.objects.active=joinedroot
+
+                
+                    
+                try:
+                    bpy.ops.object.parent_clear(type= 'CLEAR_KEEP_TRANSFORM')
+                    exportparent=bpy.data.objects[(root.parent.name[2:])]
+                    #print('exportparent:  ', exportparent.name)
+                    joinedroot.parent=exportparent       
+                    joinedroot.matrix_parent_inverse = exportparent.matrix_world.inverted()
+
+                    #print('parent assigned' )
+                except:
+                    #print ('parent skipped') 
+
+
+
+                    joinedroot.name=joinedroot.name[2:-7]            
+                    bpy.ops.object.make_links_scene(scene=('stg-'+sce.name ))
+                    print('made links')
+                    bpy.ops.object.delete()
+
 
 # link joined objects To staging scene                
-            bpy.ops.object.make_links_scene(scene=('stg-'+sce.name ))
-            print('made links')
- 
- 
- 
-            bpy.ops.object.delete()
- 
                         
         # go to staging scene
         origscene=context.scene
@@ -638,7 +801,7 @@ class OpNZTGameAssetExport(bpy.types.Operator):
 
 # find each object with no parent (top level) to export as separate fbx file.
              
-            toplevelobjects = [obj for obj in sce.objects if (obj.parent==None)]
+            toplevelobjects = [obj for obj in bpy.context.view_layer.objects if (obj.parent==None)]
 
             for obj in toplevelobjects:            
                 bpy.ops.object.select_all(action='DESELECT')
@@ -650,6 +813,8 @@ class OpNZTGameAssetExport(bpy.types.Operator):
                 filename=obj.name
                 exppath=expdir+filename+'.fbx'
 
+                #bpy.ops.export_scene.mesh(filepath=(exppath),check_existing=False)
+                
                 bpy.ops.export_scene.fbx(filepath=(exppath),use_selection=True, global_scale=1, check_existing=False, mesh_smooth_type='OFF', bake_space_transform=True,bake_anim=False,apply_unit_scale=not(sce.nztprops.unity5))
                         
  
@@ -671,41 +836,22 @@ class OpNZTBakeExport(bpy.types.Operator):
     def execute(self, context):
 
         print('exporting bake meshes ')
-        roots=[]
-        for obj in context.visible_objects:
-            if obj.type=='EMPTY' and obj.nztroot.is_lopo_root==True:
-                roots.append(obj)    
-                roots.append(bpy.data.objects[obj.nztroot.hipo_target])
-                
-        steps=['lo','hi']
         
-        for step in steps:
+        
+        for bakestep in ['lowpoly','hipoly']:
+        
+            bpy.context.view_layer.active_layer_collection=bpy.context.view_layer.layer_collection.children['bake'].children[bakestep]
+        
+        
+            sce=bpy.context.scene
+
+            if bakestep == 'lowpoly' : steptag = 'lo'
+            else: steptag = 'hi'
+             
+            exppath=bpy.path.abspath(sce.nztprops.bakemeshespath)+'\\'+sce.name +'-'+steptag+'.fbx'
+            print('started export', exppath)
             
-            print('exporting '+step+' meshes')
-            steproots=[]
-                            
-            for root in roots:
-                if root.nztroot.is_lopo_root==False:
-                    if step =='hi':
-                       steproots.append(root)                      
-                    else:
-                       pass 
-                elif root.nztroot.is_lopo_root==True:
-                    if step =='lo':
-                       steproots.append(root)                     
-                    else:
-                        pass
- 
-
-            bpy.ops.object.select_all(action='DESELECT')
-            for root in steproots:
-                bpy.ops.object.select_pattern(pattern=root.name,extend=True)
-                context.view_layer.objects.active=root
-                bpy.ops.object.select_hierarchy(direction='CHILD',extend=True)
-
-                exppath=bpy.path.abspath(sce.nztprops.bakemeshespath)+'\\'+sce.name +'-'+step+'.fbx'
-                print('started export', exppath)
-                bpy.ops.export_scene.fbx(filepath=(exppath),use_selection=True, global_scale=1, check_existing=False, mesh_smooth_type='OFF', bake_space_transform=True,apply_unit_scale=False)
+            bpy.ops.export_scene.fbx(filepath=(exppath),use_active_collection=True, global_scale=1, check_existing=False, mesh_smooth_type='OFF', bake_space_transform=True,apply_unit_scale=True)
 
         return {'FINISHED'}
 
@@ -792,7 +938,102 @@ class OpNZTorigintoselected(bpy.types.Operator):
         bpy.ops.object.editmode_toggle()
         
         return {'FINISHED'}
+
+
+class OpNZTmarkextrauvs(bpy.types.Operator):
+    "mark selected faces in objects as extra uvs"
+    bl_idname = "object.nzt_markextrauvs"
+    bl_label = "mark extra uvs"
     
+    def execute(self, context):
+        
+        bpy.ops.object.mode_set()
+
+        origselection=bpy.context.selected_objects
+
+
+        for ob in origselection:
+            
+            bpy.ops.object.select_all(action='DESELECT')
+            ob.select_set(True)
+            bpy.context.view_layer.objects.active=ob
+            
+            for fmap in ob.face_maps:
+                ob.face_maps.active_index=0
+                bpy.ops.object.face_map_remove()
+            
+            bpy.ops.object.face_map_add()    
+            bpy.context.view_layer.objects.active.face_maps.active.name='extrauvs'
+            ob.face_maps.active_index=0
+
+                
+            bpy.ops.object.editmode_toggle()
+                    
+            bpy.ops.object.face_map_assign()
+            
+            bpy.ops.object.mode_set()
+
+        return {'FINISHED'}    
+
+class OpNZTgetextrauvs(bpy.types.Operator):
+    "select faces previously marked as extra uvs"
+    bl_idname = "object.nzt_getextrauvs"
+    bl_label = "get extra uvs"
+    
+    def execute(self, context):
+
+        bpy.ops.object.mode_set()
+
+        origselection=bpy.context.selected_objects
+
+        for ob in origselection:
+            
+            bpy.ops.object.select_all(action='DESELECT')
+            ob.select_set(True)
+            bpy.context.view_layer.objects.active=ob
+            
+            ob.face_maps.active_index=0
+            
+                    
+            bpy.ops.object.editmode_toggle()
+                    
+            bpy.ops.object.face_map_select()
+            
+            bpy.ops.object.mode_set()
+            
+        for ob in origselection:
+                ob.select_set(True)
+
+        bpy.ops.object.editmode_toggle()    
+    
+        return {'FINISHED'}    
+
+class OpNZTsetcolletionorigin(bpy.types.Operator):
+    "set active object's collection offset to location of object pivot"
+    bl_idname = "object.nzt_setcollectionorigin"
+    bl_label = "set collection origin"
+    
+    def execute(self, context):
+
+        if bpy.context.selected_objects==[]:
+            bpy.context.object.users_collection[0].instance_offset=bpy.context.scene.cursor.location    
+
+        else:
+            bpy.context.object.users_collection[0].instance_offset=bpy.context.object.location    
+
+
+        return {'FINISHED'}    
+
+class OpNZTgetcolletionorigin(bpy.types.Operator):
+    "get active object's collection offset, move cursor to its location"
+    bl_idname = "object.nzt_getcollectionorigin"
+    bl_label = "get collection origin"
+    
+    def execute(self, context):
+
+        bpy.context.scene.cursor.location=bpy.context.object.users_collection[0].instance_offset    
+        return {'FINISHED'}    
+
 
 
 
@@ -805,7 +1046,7 @@ class OpNZTorigintoselected(bpy.types.Operator):
 
 class NZT_PT_ToolPanel(bpy.types.Panel):
     """Creates a Panel in the Object properties window"""
-    bl_label = "NiZu-Tools Shelf-042"
+    bl_label = "NiZu-Tools Shelf-045"
     bl_idname = "NZT_PT_ToolPanel"
 
     bl_space_type = 'VIEW_3D'
@@ -842,7 +1083,27 @@ class NZT_PT_ToolPanel(bpy.types.Panel):
         row = layout.row()
 
         row.operator("object.nzt_origintoselected")
+        row = layout.row()
+        row.label(text="extra uvs", icon='MESH_CUBE')
+        row = layout.row()
 
+        row.operator("object.nzt_markextrauvs")
+        row.operator("object.nzt_getextrauvs")
+        
+        row = layout.row()
+        row.label(text="activate channel", icon='MESH_CUBE')
+        row = layout.row()
+
+        row.operator("object.nzt_activateuv0")
+        row.operator("object.nzt_activateuv1")
+        
+        row = layout.row()
+        row.label(text="Collection origing", icon='MESH_CUBE')
+        row = layout.row()
+        row.operator("object.nzt_setcollectionorigin")
+        row = layout.row()
+        row.operator("object.nzt_getcollectionorigin")
+        
         
         
 class NZTUiPanel(bpy.types.Panel):
@@ -870,6 +1131,8 @@ class NZTUiPanel(bpy.types.Panel):
         row.prop(sce.nztprops,"writefbx",text='write .fbx')
         row = layout.row()
         row.prop(sce.nztprops,"unity5",text='unity5 scale')
+        row = layout.row()
+        row.prop(sce.nztprops,"usecollectionroots",text='use collections for roots')
         row = layout.row()
         row.prop(sce.nztprops,"packerpath",text='uvpack app')
     
@@ -899,7 +1162,7 @@ class NZTUiPanel(bpy.types.Panel):
 
        
        
-NZTclasses=(NZT_PT_ToolPanel,NZTUiPanel,OpNZTGameAssetExport,OpNZTBakeExport,OpNZTPackExport,NZTpreplopo,OpNZTGameAssetPrepHiPo,OpNZTPrepUVchannels,OpNZTextrasSwitchMatType,OpNZTorigintoselected,)   
+NZTclasses=(NZT_PT_ToolPanel,NZTUiPanel,OpNZTGameAssetExport,OpNZTBakeExport,OpNZTPackExport,NZTpreplopo,OpNZTGameAssetPrepHiPo,OpNZTPrepUVchannels,OpNZTextrasSwitchMatType,OpNZTorigintoselected,OpNZTmarkextrauvs,OpNZTgetextrauvs,OpNZTsetcolletionorigin,OpNZTgetcolletionorigin,OpNZTactivateUVchannel0,OpNZTactivateUVchannel1)   
 
 
 
